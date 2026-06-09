@@ -1,0 +1,22 @@
+name = "studio"
+main = ".open-next/worker.js"
+compatibility_date = "2026-05-13"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+assets = { directory = ".open-next/assets", binding = "ASSETS" }
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ll-cockpit-db"
+database_id = "831eeccf-60bc-4378-8a3b-71dfb910756e"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ll-cockpit-r2"
+
+# Service binding to ll-cockpit hub for cross-Worker calls (Sprint 20 ADR pattern).
+# Avoids the Cloudflare error 1042 you get from one Worker calling another via
+# public URL. With this binding, env.HUB.fetch(...) routes internally.
+[[services]]
+binding = "HUB"
+service = "ll-cockpit"
