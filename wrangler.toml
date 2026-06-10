@@ -9,6 +9,8 @@ assets = { directory = ".open-next/assets", binding = "ASSETS" }
 binding = "DB"
 database_name = "ll-cockpit-db"
 database_id = "831eeccf-60bc-4378-8a3b-71dfb910756e"
+migrations_table = "studio_migrations"
+migrations_dir   = "migrations"
 
 [[r2_buckets]]
 binding = "R2"
