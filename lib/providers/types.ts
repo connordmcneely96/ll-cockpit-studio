@@ -19,8 +19,11 @@ export type GenStatus = {
   error?: string;
 };
 
+export type AssetKind = "footage" | "avatar";
+
 export interface VideoProvider {
   name: string;
+  capabilities: { kinds: AssetKind[] };
   submit(model: string, input: GenInput): Promise<GenSubmit>;
   check(model: string, providerRequestId: string): Promise<GenStatus>;
 }

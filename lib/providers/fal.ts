@@ -26,6 +26,7 @@ function mapInput(input: GenInput): Record<string, unknown> {
 
 export const falProvider: VideoProvider = {
   name: "fal",
+  capabilities: { kinds: ["footage"] },
 
   async submit(model: string, input: GenInput): Promise<GenSubmit> {
     const key = getFalKey();
