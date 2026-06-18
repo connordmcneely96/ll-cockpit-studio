@@ -51,8 +51,11 @@ export const falProvider: VideoProvider = {
 
   async check(model: string, providerRequestId: string): Promise<GenStatus> {
     const key = getFalKey();
+    // Asymmetry: submit POSTs to the full model path, but the queue status/result
+    // endpoints live at the APP-level path (owner/app), not the full sub-path.
+    const appBase = model.split("/").slice(0, 2).join("/"); // e.g. 'fal-ai/kling-video'
     const statusRes = await fetch(
-      `https://queue.fal.run/${model}/requests/${providerRequestId}/status`,
+      `https://queue.fal.run/${appBase}/requests/${providerRequestId}/status`,
       { headers: { Authorization: `Key ${key}` } }
     );
     if (!statusRes.ok) {
@@ -69,7 +72,7 @@ export const falProvider: VideoProvider = {
 
     if (falStatus === "COMPLETED") {
       const resultRes = await fetch(
-        `https://queue.fal.run/${model}/requests/${providerRequestId}`,
+        `https://queue.fal.run/${appBase}/requests/${providerRequestId}`,
         { headers: { Authorization: `Key ${key}` } }
       );
       if (!resultRes.ok) {
