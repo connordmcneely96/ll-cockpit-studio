@@ -3,8 +3,8 @@
 import { getEnv } from "@/lib/movie";
 import type { GenInput, GenStatus, GenSubmit, VideoProvider } from "./types";
 
-// confirm exact slug against the fal dashboard before first live run; any fal model id is valid here.
-export const DEFAULT_FOOTAGE_MODEL = "fal-ai/kling-video/v2.5-turbo/pro/text-to-video";
+// Confirmed-live text-to-video slug as of 2026-06-11; any fal model id is valid here.
+export const DEFAULT_FOOTAGE_MODEL = "fal-ai/kling-video/v3/standard/text-to-video";
 
 function getFalKey(): string {
   const env = getEnv() as unknown as { FAL_KEY?: string };
