@@ -10,6 +10,11 @@ import { getProvider } from "@/lib/providers";
 import { DEFAULT_FOOTAGE_MODEL } from "@/lib/providers/fal";
 import { estimateCost } from "./costs";
 
+// Hardening bounds (Sprint 178B-2b-2a-h).
+const MAX_POLL_RENDERS = 10; // cap renders polled per tick so a tick can never run unbounded
+const STALE_SECONDS = 1800; // 30 min: a claim older than this is considered timed out
+const MAX_ATTEMPTS = 3; // don't re-claim a render that has already been attempted this many times
+
 // Local D1 view that exposes meta.changes for guarded updates — the lib/movie
 // Env.DB type intentionally omits it. Native binding, no SDK.
 type RunResult = { success: boolean; meta?: { changes?: number } };
@@ -48,6 +53,7 @@ type AssetRow = {
 };
 
 export type TickSummary = {
+  reaped: number; // stale renders timed out this tick
   claimed: number; // renders claimed this tick
   submitted: number; // assets submitted to a generator this tick
   ready: number; // renders finalized to 'assets_ready'
@@ -264,21 +270,60 @@ async function finalizeRender(
   }
 }
 
+// Reap stale claims: renders stuck in 'generating' past STALE_SECONDS are failed out, along
+// with their non-terminal assets. This is fail-out (not auto-retry) to avoid double-spend;
+// an auto-retry under MAX_ATTEMPTS could be added here later. Returns the count reaped.
+async function reapStale(env: Env): Promise<number> {
+  const database = db(env);
+  const { results: stale } = await database
+    .prepare(
+      `SELECT id, tenant_id FROM movie_renders
+       WHERE status = 'generating' AND claimed_at IS NOT NULL
+         AND claimed_at < (unixepoch() - ?)`
+    )
+    .bind(STALE_SECONDS)
+    .all<{ id: string; tenant_id: string }>();
+
+  for (const r of stale) {
+    await database
+      .prepare(
+        `UPDATE movie_assets SET status = 'failed', error = 'render timed out', updated_at = unixepoch()
+         WHERE render_id = ? AND tenant_id = ? AND status IN ('pending', 'generating')`
+      )
+      .bind(r.id, r.tenant_id)
+      .run();
+    await database
+      .prepare(
+        `UPDATE movie_renders
+           SET status = 'failed', error = 'timed out after ' || ? || 's', updated_at = unixepoch()
+         WHERE id = ? AND tenant_id = ?`
+      )
+      .bind(STALE_SECONDS, r.id, r.tenant_id)
+      .run();
+  }
+
+  return stale.length;
+}
+
 export async function tick(
   env: Env,
   opts?: { maxRenders?: number }
 ): Promise<TickSummary> {
   const maxRenders = opts?.maxRenders ?? 3;
   const database = db(env);
-  const summary: TickSummary = { claimed: 0, submitted: 0, ready: 0, failed: 0, composing: 0 };
+  const summary: TickSummary = { reaped: 0, claimed: 0, submitted: 0, ready: 0, failed: 0, composing: 0 };
+
+  // Reap stale claims before anything else, so timed-out renders free up and don't get polled.
+  summary.reaped = await reapStale(env);
 
   // a) CLAIM — grab up to maxRenders queued renders, oldest first, with a guarded update.
+  // Skip renders that have already exhausted MAX_ATTEMPTS (defensive; fail-out makes this rare).
   const { results: queued } = await database
     .prepare(
       `SELECT id, project_id, tenant_id, generator, generator_model FROM movie_renders
-       WHERE status = 'queued' ORDER BY created_at ASC LIMIT ?`
+       WHERE status = 'queued' AND attempts < ? ORDER BY created_at ASC LIMIT ?`
     )
-    .bind(maxRenders)
+    .bind(MAX_ATTEMPTS, maxRenders)
     .all<RenderRow>();
 
   const claimedIds = new Set<string>();
@@ -307,7 +352,10 @@ export async function tick(
   // c+d) POLL + FINALIZE — renders already mid-flight (excluding ones claimed this tick,
   // which were just submitted and won't have results yet).
   const { results: generating } = await database
-    .prepare(`SELECT id, tenant_id FROM movie_renders WHERE status = 'generating'`)
+    .prepare(
+      `SELECT id, tenant_id FROM movie_renders WHERE status = 'generating'
+       ORDER BY claimed_at ASC LIMIT ${MAX_POLL_RENDERS}`
+    )
     .all<{ id: string; tenant_id: string }>();
 
   for (const r of generating) {
